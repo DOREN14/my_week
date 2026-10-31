@@ -1,7 +1,3 @@
-import 'dart:convert';
-
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'models.dart';
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -37,37 +33,28 @@ String formatDuration(int minutes) {
   return '${h}h ${m}m';
 }
 
+// All the checks live here, so add and edit use the same rules.
+// null = success, otherwise an error message.
+String? checkCourse(String name, String startText, String endText) {
+  if (name.trim().isEmpty) return 'Course name cannot be empty';
+  final start = parseTime(startText);
+  if (start == null) {
+    return 'Start time must look like 08:00 (hours 00-23, minutes 00-59)';
+  }
+  final end = parseTime(endText);
+  if (end == null) {
+    return 'End time must look like 10:30 (hours 00-23, minutes 00-59)';
+  }
+  if (end <= start) return 'End time must be after the start time';
+  return null;
+}
+
+// The data now lives in Firestore. A Timetable is built from the list that
+// arrives, and only COMPUTES things (nothing is saved here).
 class Timetable {
-  final List<Course> courses = [
-    Course(name: 'Math', day: 'Monday', start: 480, end: 600),
-    Course(name: 'Physics', day: 'Monday', start: 540, end: 660), // clashes with Math
-    Course(name: 'Programming', day: 'Tuesday', start: 600, end: 720),
-    Course(name: 'English', day: 'Wednesday', start: 840, end: 930),
-    Course(name: 'Networks', day: 'Friday', start: 480, end: 600),
-    Course(name: 'Databases', day: 'Friday', start: 600, end: 690),
-  ];
+  Timetable(this.courses);
 
-  // ---------- Saving ----------
-
-  Future<void> save() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = courses.map((c) => c.toJson()).toList();
-    await prefs.setString('courses', jsonEncode(list));
-  }
-
-  // First time: nothing saved, so the sample courses stay.
-  Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('courses');
-    if (saved == null) return;
-    final list = jsonDecode(saved) as List;
-    courses.clear();
-    for (final x in list) {
-      courses.add(Course.fromJson(x as Map<String, dynamic>));
-    }
-  }
-
-  // ---------- Reading ----------
+  final List<Course> courses;
 
   // The courses of one day, ALWAYS sorted by start time (a sorted copy).
   List<Course> coursesOn(String day) {
@@ -79,7 +66,7 @@ class Timetable {
   // Two courses clash if EACH starts before the other ends.
   List<Course> clashesWith(Course course) {
     return courses.where((other) {
-      if (identical(other, course)) return false;
+      if (other.id == course.id) return false;
       if (other.day != course.day) return false;
       return course.start < other.end && other.start < course.end;
     }).toList();
@@ -99,56 +86,5 @@ class Timetable {
       total += c.end - c.start;
     }
     return total;
-  }
-
-  // ---------- Rules (null = success, otherwise an error message) ----------
-
-  // All the checks live here, so add and edit use the same rules.
-  String? check(String name, String startText, String endText) {
-    if (name.trim().isEmpty) return 'Course name cannot be empty';
-    final start = parseTime(startText);
-    if (start == null) {
-      return 'Start time must look like 08:00 (hours 00-23, minutes 00-59)';
-    }
-    final end = parseTime(endText);
-    if (end == null) {
-      return 'End time must look like 10:30 (hours 00-23, minutes 00-59)';
-    }
-    if (end <= start) return 'End time must be after the start time';
-    return null;
-  }
-
-  String? addCourse(String name, String day, String startText, String endText) {
-    final error = check(name, startText, endText);
-    if (error != null) return error;
-    courses.add(
-      Course(
-        name: name.trim(),
-        day: day,
-        start: parseTime(startText)!,
-        end: parseTime(endText)!,
-      ),
-    );
-    return null;
-  }
-
-  String? updateCourse(
-      Course course,
-      String name,
-      String day,
-      String startText,
-      String endText,
-      ) {
-    final error = check(name, startText, endText);
-    if (error != null) return error; // nothing changes
-    course.name = name.trim();
-    course.day = day;
-    course.start = parseTime(startText)!;
-    course.end = parseTime(endText)!;
-    return null;
-  }
-
-  void deleteCourse(Course course) {
-    courses.remove(course);
   }
 }
